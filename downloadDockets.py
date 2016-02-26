@@ -6,6 +6,7 @@ Lars Roemheld, roemheld@stanford.edu
 __author__ = 'Lars Roemheld'
 
 from bs4 import BeautifulSoup
+from bs4.element import NavigableString
 import requests
 import logging
 import random
@@ -13,6 +14,7 @@ import os, sys, getopt
 import json
 import re
 import urlparse
+import time
 
 def slugify(value):
     """
@@ -26,7 +28,7 @@ def slugify(value):
     return value
 def getPageSoup(url):
     try:
-        r = requests.get(url)
+        r = requests.get(url) # , headers={'user-agent' : 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.97 Safari/537.36'}
         r.raise_for_status()
     except:
         logging.error('Getting page {0} failed: {1}'.format(url, sys.exc_info()[0]))
@@ -38,6 +40,20 @@ def getPageSoup(url):
         logging.error('Reading in the page html failed: {0} \n\n http data: {1}'.format(sys.exc_info()[0], r.text))
         return None
     return soup
+def getSoupStringConcat(soupTag):
+    '''
+    Beautiful soup tags return their content text in the .string parameter if there is only one string child.
+    Some unfortunate cases on scotus blog have more than one child-string, and this helper just concat's them.
+    :param soupTag: a bs4 tag that contains one or more strings
+    :return: a string containing all string children of soupTag, concatenated.
+    '''
+    if isinstance(soupTag, NavigableString): return soupTag.string
+    result = ""
+    for t in soupTag.descendants:
+        if t.string is not None and isinstance(t, NavigableString): # only include NavigableStrings (work around .string default searching behavior)
+            if t.parent.name != "script": # prevent reading js
+                result = result + t.string
+    return result
 
 def downloadDocketInfo(scotusBlogUrl):
     '''
@@ -48,19 +64,6 @@ def downloadDocketInfo(scotusBlogUrl):
     linked to each case. Each case has a unique 'Term' and 'Docket No.' guaranteed (which is generated if it cannot be found).
      All other data depends on successful scraping.
     '''
-    def getSoupStringConcat(soupTag):
-        '''
-        Beautiful soup tags return their content text in the .string parameter if there is only one string child.
-        Some unfortunate cases on scotus blog have more than one child-string, and this helper just concat's them.
-        :param soupTag: a bs4 tag that contains one or more strings
-        :return: a string containing all string children of soupTag, concatenated.
-        '''
-        if soupTag.name is None: return soupTag.string # if the tag is already a string
-        result = ""
-        for t in soupTag.descendants:
-            if t.string is not None and t.name is None: # only include NavigableStrings (work around .string default searching behavior)
-                result = result + t.string
-        return result
     def getDocumentData(soupAnchorTag, currentSection, baseUrl, i):
         '''
         Helper function that extracts all relevant document info from a beautiful soup html tag
@@ -148,6 +151,17 @@ def downloadDocketInfo(scotusBlogUrl):
             c['Term'] = "unknown-term" + str(iUnknownTerm)
             iUnknownTerm += 1
 
+        # get opinion url
+        iOpinion = -1
+        for i, th in enumerate(docketDataTable.thead.find_all('th')):
+            if th.string == "Opinion": iOpinion = i
+        if i > -1:
+            opinion_td = docketDataTable.tbody.find_all('td')[iOpinion]
+            c['opinion_url'] = opinion_td.find('a')['href']
+        else:
+            logging.error('Failed to find opinion link for docket no {0} ({1}) '.format(c['Docket No.'], c['Term']))
+
+        # Get other document urls
         c['documents'] = []
         numDocs = 0
         for a in caseSoup.find_all('a'):
@@ -166,25 +180,69 @@ def downloadCaseDocuments(cases, baseFolder):
         folder = baseFolder + c['Term'] + '/' + c['Docket No.'] + '/'
         if not os.path.exists(folder): os.makedirs(folder)
 
-        for d in c['documents']:
-            try:
-                r = requests.get(d['url'], stream=True)
-                filename = d['local_filename']
-                with open(folder + filename, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=1024 * 1024):
-                        if chunk:
-                            f.write(chunk)
-                    f.flush()
-                nFilesDownloaded += 1
-            except:
-                logging.error('Could not download a file: url {0} to local file {1}. Error: {2} \n\n Continuing.'.format(d['url'], filename, sys.exc_info()[0]))
+        # time.sleep(1) # prevent bloomberg from blocking our scraper
+        opinionSoup = getPageSoup(c['opinion_url'])
+        if opinionSoup is not None:
+            if 'bloomberglaw' in c['opinion_url']:
+                content = opinionSoup.find(id='chunk_content')
+                if content is None: content = opinionSoup.find(id='content_document')
+                if content is None:
+                    logging.warning('Case {0} ({1}) has an opinion link that could not be parsed properly. Downloading complete html instead'.format(c['Docket No.'], c['Term']))
+                    content = opinionSoup.html
+                opinion_text = getSoupStringConcat(content)
+                filename = 'opinion.txt'
+                try:
+                    with open(folder + filename, 'wb') as f:
+                        f.write(opinion_text.encode('utf8'))
+                    nFilesDownloaded += 1
+                except:
+                    logging.error('Could not download a file: url {0} to local file {1}. Error: {2} \n\n Continuing.'.format(c['opinion_url'], filename, sys.exc_info()[0]))
+                    nFilesFailed += 1
+            else:
+                logging.warning('Case {0} ({1}) has an opinion link that is not bloomberglaw. Parsing failed.'.format(c['Docket No.'], c['Term']))
                 nFilesFailed += 1
+        else:
+            nFilesFailed += 1
+
+
+        # for d in c['documents']:
+        #     try:
+        #         r = requests.get(d['url'], stream=True)
+        #         filename = d['local_filename']
+        #         with open(folder + filename, 'wb') as f:
+        #             for chunk in r.iter_content(chunk_size=1024 * 1024):
+        #                 if chunk:
+        #                     f.write(chunk)
+        #             f.flush()
+        #         nFilesDownloaded += 1
+        #     except:
+        #         logging.error('Could not download a file: url {0} to local file {1}. Error: {2} \n\n Continuing.'.format(d['url'], filename, sys.exc_info()[0]))
+        #         nFilesFailed += 1
 
     return (nFilesDownloaded, nFilesFailed)
 
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
+
+    # # does this problem just go away? didn't have this before...
+    # url = 'http://www.bloomberglaw.com/public/document/AlMarri_v_Spagone_555_US_1220_129_S_Ct_1545_173_L_Ed_2d_671_2009_'
+    # # url = 'http://bloomberglaw.com/public/desktop/document/AlMarri_v_Spagone_555_US_1220_129_S_Ct_1545_173_L_Ed_2d_671_2009_'
+    # opinionSoup = getPageSoup(url)
+    # if opinionSoup is not None:
+    #     if 'bloomberglaw' in url:
+    #         content = opinionSoup.find(id='chunk_content')
+    #         if content is None: content = opinionSoup.find(id='content_document')
+    #         if content is None:
+    #             logging.warning('Case {0} ({1}) has an opinion link that could not be parsed properly. Downloading complete html instead'.format(c['Docket No.'], c['Term']))
+    #             content = opinionSoup.html
+    #         opinion_text = getSoupStringConcat(content)
+    #         print(opinion_text)
+    #         filename = 'opinion.txt'
+    #         with open(filename, 'wb') as f:
+    #             f.write(opinion_text.encode('utf8'))
+    # exit()
+
 
     # TODO: can currently only reliably scrape documents until 2011 (inclusive)
     archiveSites = ['http://www.scotusblog.com/case-files/terms/ot' + str(y) + '/' for y in range(2007, 2012)]
@@ -194,16 +252,16 @@ if __name__ == '__main__':
         logging.info('Trying to scrape url=' + url)
         new_cases = downloadDocketInfo(url)
         if new_cases is None:
-            print "error! continuing..."
+            print("error! continuing...")
         else:
             all_cases += new_cases
 
-    print "jsonified:"
-    print json.dumps(all_cases, sort_keys=True, indent=4)
+    print("jsonified:")
+    print(json.dumps(all_cases, sort_keys=True, indent=4))
     with open('cases.json', 'w') as f:
         json.dump(all_cases, f)
-    print "... written to 'cases.json'."
+    print("... written to 'cases.json'.")
 
-    print 'Starting download of all documents...'
+    print('Starting download of all documents...')
     downloadCaseDocuments(all_cases, './')
-    print 'Done.'
+    print('Done.')

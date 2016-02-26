@@ -14,6 +14,7 @@ import json
 import re
 import urlparse
 
+import codecs
 
 def loadCases(filename):
     '''
@@ -54,8 +55,8 @@ if __name__ == '__main__':
     print 'Showing document {0} from that case (type is {1}):'.format(iDoc, cases[iCase]['documents'][iDoc]['appeared_section'])
     temp = getCaseDocFilename(cases[iCase], iDoc)
     print 'Filename: ', temp
-    with open(folder + temp, 'r') as f:
+    with open(folder + temp, 'rb') as f:
         content = f.read()
-    print 'Size: ' + str(len(content)) + 'bytes'
+    print 'Size: ' + str(len(content)) + 'bytes.'
     print 'First 200 Chars:\n'
-    print content[0:200]
+    print content
