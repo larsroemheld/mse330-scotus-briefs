@@ -120,6 +120,8 @@ def downloadDocketInfo(scotusBlogUrl):
 
     caseTables = scotusSoup.find_all(class_ = "caseindex")
 
+    opinionDate_re = re.compile(r'Decided.*?(\d*\.\d*\.\d*)')
+
     cases = []
     for sect in caseTables:
         sect_cases = sect.find_all('td')
@@ -127,9 +129,17 @@ def downloadDocketInfo(scotusBlogUrl):
             c_name_a = case.find(class_='case-title')
             c_name = c_name_a.string
             c_url = c_name_a['href']
-            cases.append({'name': c_name, 'url': c_url})
 
-    # (Debug) cases = [random.choice(cases), random.choice(cases), random.choice(cases)]
+            # get opinion date
+            text = getSoupStringConcat(case)
+            date = opinionDate_re.search(text)
+            if date is not None:
+                date = date.group(1)
+
+            print date
+            cases.append({'name': c_name, 'url': c_url, 'decided_date': date})
+
+    # # (Debug) cases = [random.choice(cases), random.choice(cases), random.choice(cases)]
     iUnknownDocket = 1 # index for cases with unidentifiable docket no (unique index)
     iUnknownTerm = 1 # index for cases with unidentifiable term (unique index)
     for c in cases:
@@ -205,44 +215,25 @@ def downloadCaseDocuments(cases, baseFolder):
             nFilesFailed += 1
 
 
-        # for d in c['documents']:
-        #     try:
-        #         r = requests.get(d['url'], stream=True)
-        #         filename = d['local_filename']
-        #         with open(folder + filename, 'wb') as f:
-        #             for chunk in r.iter_content(chunk_size=1024 * 1024):
-        #                 if chunk:
-        #                     f.write(chunk)
-        #             f.flush()
-        #         nFilesDownloaded += 1
-        #     except:
-        #         logging.error('Could not download a file: url {0} to local file {1}. Error: {2} \n\n Continuing.'.format(d['url'], filename, sys.exc_info()[0]))
-        #         nFilesFailed += 1
+        for d in c['documents']:
+            try:
+                r = requests.get(d['url'], stream=True)
+                filename = d['local_filename']
+                with open(folder + filename, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=1024 * 1024):
+                        if chunk:
+                            f.write(chunk)
+                    f.flush()
+                nFilesDownloaded += 1
+            except:
+                logging.error('Could not download a file: url {0} to local file {1}. Error: {2} \n\n Continuing.'.format(d['url'], filename, sys.exc_info()[0]))
+                nFilesFailed += 1
 
     return (nFilesDownloaded, nFilesFailed)
 
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
-
-    # # does this problem just go away? didn't have this before...
-    # url = 'http://www.bloomberglaw.com/public/document/AlMarri_v_Spagone_555_US_1220_129_S_Ct_1545_173_L_Ed_2d_671_2009_'
-    # # url = 'http://bloomberglaw.com/public/desktop/document/AlMarri_v_Spagone_555_US_1220_129_S_Ct_1545_173_L_Ed_2d_671_2009_'
-    # opinionSoup = getPageSoup(url)
-    # if opinionSoup is not None:
-    #     if 'bloomberglaw' in url:
-    #         content = opinionSoup.find(id='chunk_content')
-    #         if content is None: content = opinionSoup.find(id='content_document')
-    #         if content is None:
-    #             logging.warning('Case {0} ({1}) has an opinion link that could not be parsed properly. Downloading complete html instead'.format(c['Docket No.'], c['Term']))
-    #             content = opinionSoup.html
-    #         opinion_text = getSoupStringConcat(content)
-    #         print(opinion_text)
-    #         filename = 'opinion.txt'
-    #         with open(filename, 'wb') as f:
-    #             f.write(opinion_text.encode('utf8'))
-    # exit()
-
 
     # TODO: can currently only reliably scrape documents until 2011 (inclusive)
     archiveSites = ['http://www.scotusblog.com/case-files/terms/ot' + str(y) + '/' for y in range(2007, 2012)]
