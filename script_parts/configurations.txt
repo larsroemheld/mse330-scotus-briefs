@@ -1,0 +1,14 @@
+PhraseLength,18     // default 6
+WordThreshold,20     // default 100
+SkipLength,20       // default 20
+MismatchTolerance,2 // default 2
+MismatchPercentage,80   // default 80
+BriefReport,0       // default 0 = No/False (note that: 1 = Yes/True)
+IgnoreCase,1        // default 0 = No/False (note that: 1 = Yes/True)
+IgnoreNumbers,0     // default 0 = No/False (note that: 1 = Yes/True)
+IgnoreOuterPunctuation,1    // default 0 = No/False (note that: 1 = Yes/True)
+IgnorePunctuation,1 // default 0 = No/False (note that: 1 = Yes/True)
+SkipLongWords,0     // default 0 = No/False (note that: 1 = Yes/True)
+SkipNonwords,0      // default 0 = No/False (note that: 1 = Yes/True)
+Locale,English      // default English
+PrepareForComparisons   // loads the documents and gets ready to run comparisons

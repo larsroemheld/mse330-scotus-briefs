@@ -34,7 +34,5 @@ if __name__ == '__main__':
 
     driver = webdriver.Chrome()
     driver.get(filename)
-    f = input("Press enter to continue...")
-    driver.quit()
 
 
