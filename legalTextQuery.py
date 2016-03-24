@@ -13,7 +13,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 
 import time
-import os, logging
+import os, logging, sys
 import re
 
 import loadDocketInfo
@@ -50,7 +50,11 @@ def LN_query(query, driver):
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
 
-    file_in = 'results_14.txt'
+    file_in = sys.argv[1]
+    if len(sys.argv) > 2: skip_lines = int(sys.argv[2])
+    else: skip_lines = 0
+    print "skipping {} lines!".format(skip_lines)
+
     # Note
     # export LEXISNEXIS_USER=username
     # export LEXISNEXIS_PASS=password
@@ -106,7 +110,7 @@ if __name__ == '__main__':
             matches.append({'term': term, 'docket': docket, 'brief': brief, 'match': match})
 
     for idx, obj in enumerate(matches):
-        # if idx < 6184: continue # skip through what's done already
+        if idx < skip_lines: continue # skip through what's done already
 
         print '## Now on match (line) #'+str(idx)
         match_case = None
@@ -128,11 +132,15 @@ if __name__ == '__main__':
             logging.info("Found {0} results on current page".format(str(len(res))))
 
             for item in res:
-                name_tag = item.find_element_by_class_name('doc-title')
-                name = name_tag.text
-                metadata_tag = item.find_element_by_tag_name('aside')
-                metadata = metadata_tag.text
-                fields = metadata.split('\n')
+                try:
+                    name_tag = item.find_element_by_class_name('doc-title')
+                    name = name_tag.text
+                    metadata_tag = item.find_element_by_tag_name('aside')
+                    metadata = metadata_tag.text
+                    fields = metadata.split('\n')
+                except:
+                    logging.error('Parsing some page element failed. Continuing')
+                    continue
 
                 date = 'unknown'
                 foundDate = False
@@ -147,8 +155,6 @@ if __name__ == '__main__':
                 if datetime < match_case['decided_date']:
                     previouslyUsed = True
                     print "found previous usage: "
-                    print name
-                    print datetime
                     print match_case['decided_date']
                     break
                 elif datetime > match_case['decided_date']: # note the strict greater than. This will hopefully weed out the opinion itself
